@@ -19,7 +19,7 @@
 
 package fiji.plugin.CurveTrace.stegers;
 
-/** Data structure to store three doubles: x,y and t (distance along line) */
+/** Data structure to store three doubles: x,y and t (distance along line) **/
 public class doublepoint {
 	
 	public double cx;

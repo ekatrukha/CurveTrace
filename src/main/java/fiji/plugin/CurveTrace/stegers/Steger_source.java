@@ -2304,7 +2304,7 @@ public class Steger_source implements PlugIn
 	   The array master will usually be the width of the line, while slave1 and
 	   slave2 will be values that depend on master[i] being 0, e.g., the gradient
 	   at each line point.  The arrays slave1 and slave2 can be NULL. 
-	 * @return */
+	 * @return **/
 	public static float[][] fill_gaps(float[] master, float[] slave1, float[] slave2, contour t_cont)
 	{
 	  int    i, j, k, s, e;

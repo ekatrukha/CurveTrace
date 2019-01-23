@@ -26,7 +26,7 @@ public class correctx {
 	   
 /** Table of the line width and position corrections.  This table is sampled at
    41 uniform p values for w_est in [2,6] and 21 uniform values for r_est in
-   [0,1]. */
+   [0,1]. **/
 public static double[][][] ctable = {
   {
     {2.0, 0.00, 0.00000000, 0.00000000, 0.00000000, 1.00000000, 1.00000000, 0},
@@ -934,11 +934,11 @@ public static double[][][] ctable = {
 };
 	
 
-	/* Return the correct line width w and asymmetry h, and a line position
+	/** Return the correct line width w and asymmetry h, and a line position
 	correction correct for a line with extracted width w_est and extracted
 	gradient ratio r_est for a given sigma.  Furthermore, return the line width
 	on the weak and strong side of the line.  These values are obtained by
-	bilinear interpolation from the table ctable. */
+	bilinear interpolation from the table ctable. **/
 	public static correctionx line_corrections(double sigma, double w_est, double r_est)
 	{
 		

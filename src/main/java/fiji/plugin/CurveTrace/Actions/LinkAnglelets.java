@@ -9,6 +9,7 @@ import fiji.plugin.CurveTrace.CoreClasses.Curve;
 import fiji.plugin.CurveTrace.CoreClasses.CurveSet;
 import fiji.plugin.CurveTrace.CoreClasses.CurveStack;
 import fiji.plugin.CurveTrace.CoreClasses.CurvesOverlap;
+import fiji.plugin.CurveTrace.CoreClasses.Normale;
 import fiji.plugin.CurveTrace.CoreClasses.Point;
 import ij.IJ;
 import ij.ImagePlus;
@@ -61,6 +62,9 @@ public class LinkAnglelets implements PlugIn {
 	
 	/**whether to generate cumulative SUM z-projection**/
 	boolean bCumulProj;
+	
+	/** whether to update results table with newly linked curves**/
+	boolean bLAUpdateResults;
 	
 	/** overlay of main image */
 	Overlay image_overlay; 
@@ -152,7 +156,9 @@ public class LinkAnglelets implements PlugIn {
 			imp.updateAndRepaintWindow();
 			imp.show();
 		}
-		//outputcurvestack.toResultsTable();
+		if(bLAUpdateResults)
+			outputcurvestack.toResultsTable();
+		
 		
 	}
 	
@@ -627,9 +633,12 @@ public class LinkAnglelets implements PlugIn {
 						point2.angle=(float) (point2.angle-Math.PI);
 					dAnglDiff =Math.abs(point1.angle-point2.angle);
 					*/
+					/*
 					dAnglDiff=Math.cos(point1.angle-point2.angle);
 					dAnglDiff=Math.acos(dAnglDiff);
 					dAnglDiff=Math.min(dAnglDiff, Math.PI-dAnglDiff);
+					*/
+					dAnglDiff = Math.abs(Normale.Sdist(point1.angle, point2.angle));
 					if(dAnglDiff<dAngleDistance)
 					{
 						dMinDistance=distance;
@@ -865,6 +874,7 @@ public class LinkAnglelets implements PlugIn {
 		linkingD.addNumericField("Overlap distance to ends for extention overlap (0-1):", Prefs.get("CurveTrace.linkExtensionOverlapF", 0.05), 2, 4,"fraction");		
 		linkingD.addCheckbox("Show intermediate linking information?", Prefs.get("CurveTrace.linkDebug", false));
 		linkingD.addCheckbox("Generate cumulative projection?", Prefs.get("CurveTrace.linkCumulProj", false));
+		linkingD.addCheckbox("Update Results Table", Prefs.get("CurveTrace.bLAUpdateResults", false));
 		linkingD.setResizable(false);
 		linkingD.showDialog();	
 		if (linkingD.wasCanceled())
@@ -887,6 +897,8 @@ public class LinkAnglelets implements PlugIn {
 		Prefs.set("CurveTrace.linkDebug", bLinkDebug);
 		bCumulProj= linkingD.getNextBoolean();
 		Prefs.set("CurveTrace.linkCumulProj", bCumulProj);
+		bLAUpdateResults = linkingD.getNextBoolean();
+		Prefs.set("CurveTrace.bMSUpdateResults", bLAUpdateResults);
 		
 		return true;
 	}

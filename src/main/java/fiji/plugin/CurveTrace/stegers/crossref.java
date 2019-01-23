@@ -22,7 +22,7 @@ package fiji.plugin.CurveTrace.stegers;
 /** This data structure facilitates the quick search for the next possible
 starting point of a line.  An array of crossrefs will be accumulated and
 sorted according to its value.  x and y are the coordinates of a point in
-the image.  When this point has been processed it will be marked as done. */
+the image.  When this point has been processed it will be marked as done. **/
 public class crossref implements Comparable <crossref>{
 	public short  x;
 	public short  y;
@@ -42,8 +42,8 @@ public class crossref implements Comparable <crossref>{
 			done = ndone;
 	  }
 
-	  /* This function compares two crossrefs according to their value.  It is called
-	   by qsort. */
+	  /** This function compares two crossrefs according to their value.  It is called
+	   by qsort. **/
 	public int compareTo(crossref otherref) {
 		// TODO Auto-generated method stub
 		if (this.value>otherref.value)

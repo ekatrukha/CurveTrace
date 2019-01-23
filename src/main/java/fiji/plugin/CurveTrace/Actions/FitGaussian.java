@@ -137,7 +137,7 @@ public class FitGaussian implements PlugIn {
 					point=curve.get(nPoint);
 					x=point.coords[0];
 					y=point.coords[1];
-					angle=point.angle;
+					angle=(float) point.angle.val;
 					
 					//normal vector
 					nx = (float)Math.sin(angle);

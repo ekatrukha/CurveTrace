@@ -4,6 +4,7 @@ import java.awt.Color;
 import java.awt.Font;
 import java.util.ArrayList;
 
+
 import ij.IJ;
 import ij.ImagePlus;
 import ij.gui.Overlay;
@@ -26,6 +27,8 @@ public class CurveStack extends ArrayList<CurveSet>
 	/** total number of points **/
 	public long nPoints;
 	
+	public boolean bPointsCounted = false; 
+	
 	/** total number of curves **/
 	public long nCurves;
 
@@ -36,7 +39,8 @@ public class CurveStack extends ArrayList<CurveSet>
 		super();
 	}
 	
-	/** function loads curve coordinates and angles from Results table **/
+	/** function loads curve coordinates and angles from Results table
+	 * to the current object **/
 	public boolean loadCurvesFromRT()
 	{
 		/** x coordinates of curve points **/
@@ -131,6 +135,7 @@ public class CurveStack extends ArrayList<CurveSet>
 		
 		nFramesTotal = (int)frameN[frameN.length-1];
 		nPoints=x.length;
+		bPointsCounted = true;
 		nCurves=0;
 		for (int i=0;i<nPoints;i++)
 		{
@@ -179,7 +184,10 @@ public class CurveStack extends ArrayList<CurveSet>
 		return true;
 	}
 	
-	/** function adds curve stored inside object to Overlay **/
+	/** function adds curve stored inside this object to Overlay 
+	 * @param nOverlayLinesType how lines are rendered 
+	 * 0 -"Nothing", 1 - "Only lines", 2 - "Lines of average width", 3 - "Lines with width border", 4 - "Lines with normales" 
+	 * @param bIgnoreFrame true=render all lines in one frame, false=render at corresponding stack's frame**/
 	public boolean showCurvesOverlay(int nOverlayLinesType, boolean bIgnoreFrame)
 	{
 		/** main image window */
@@ -267,7 +275,7 @@ public class CurveStack extends ArrayList<CurveSet>
 				 polyline_p.setStrokeColor(colors[j%8]);
 				 polyline_p.setStrokeWidth(0.0);
 				 
-				 if(nOverlayLinesType==1 || nOverlayLinesType == 3)
+				 if(nOverlayLinesType==1 || nOverlayLinesType >2)
 					 image_overlay.add(polyline_p);
 				 if(nOverlayLinesType ==2)
 				 {
@@ -292,8 +300,8 @@ public class CurveStack extends ArrayList<CurveSet>
 					  for(k=0;k<pointsN;k++)
 					  {
 						point=curve.get(k);
-						nx = Math.sin(point.angle);
-				      	ny = Math.cos(point.angle);		
+						nx = Math.sin(point.angle.val);
+				      	ny = Math.cos(point.angle.val);		
 					  	px[k]=(float) (point.coords[0] + nx*point.width*2.0);
 					  	py[k]=(float) (point.coords[1] + ny*point.width*2.0);
 					  }
@@ -306,8 +314,8 @@ public class CurveStack extends ArrayList<CurveSet>
 					  for(k=0;k<pointsN;k++)
 					  {
 						point=curve.get(k);
-						nx = Math.sin(point.angle);
-				      	ny = Math.cos(point.angle);		
+						nx = Math.sin(point.angle.val);
+				      	ny = Math.cos(point.angle.val);		
 					  	px[k]=(float) (point.coords[0] - nx*point.width*2.0);
 					  	py[k]=(float) (point.coords[1] - ny*point.width*2.0);
 					  }
@@ -317,6 +325,27 @@ public class CurveStack extends ArrayList<CurveSet>
 					  polyline_p.setPosition(nCurrFrame);
 					  image_overlay.add(polyline_p);	
 					 
+				 }
+				 if(nOverlayLinesType==4)
+				 {
+					 px = new float[2];
+					 py = new float[2];
+
+					 for(k=0;k<pointsN;k++)
+					  {
+						point=curve.get(k);
+						nx = Math.sin(point.angle.val);
+				      	ny = Math.cos(point.angle.val);		
+					  	px[0]=(float) (point.coords[0] + nx*3.0);
+					  	py[0]=(float) (point.coords[1] + ny*3.0);
+					  	px[1]=(float) (point.coords[0] - nx*3.0);
+					  	py[1]=(float) (point.coords[1] - ny*3.0);
+					  	polyline_p = new PolygonRoi(px, py, Roi.POLYLINE);
+						polyline_p.setPosition(nCurrFrame);
+						polyline_p.setStrokeColor(colors[j%8]);
+						polyline_p.setStrokeWidth(0.0);
+						image_overlay.add(polyline_p);
+					  } 
 				 }
 				 /*
 				 curve=this.get(i).get(j);
@@ -347,6 +376,7 @@ public class CurveStack extends ArrayList<CurveSet>
 		imp.show();
 		return true;
 	}
+	
 	/** function adds curve stored inside object to Overlay **/
 	public void toResultsTable()
 	{
@@ -381,7 +411,7 @@ public class CurveStack extends ArrayList<CurveSet>
 					ptable.addValue("X_(px)",point.coords[0]);	
 					ptable.addValue("Y_(px)",point.coords[1]);
 					//ptable.addValue("Frame_Number", nFrame+1);
-					ptable.addValue("Angle_of_normal_(radians)", point.angle);
+					ptable.addValue("Angle_of_normal_(radians)", point.angle.val);
 					ptable.addValue("Response", point.response);
 					ptable.addValue("Amplitude_Fit", point.amp);
 					ptable.addValue("SD_fit", point.width);		
@@ -398,5 +428,57 @@ public class CurveStack extends ArrayList<CurveSet>
 		ptable_lock.unlock();
 		ptable.show("Results");
 	}
+	
+	/** function counts all points in all curves of CurveSet
+	 * and stores them in nPoints field **/
+	public void countPoints()
+	{
+		int i,j;
+	
+		nPoints =0;
+		for (i=0;i<this.size();i++)
+		{
+			//cycling through curveset
+			for (j=0;j<this.get(i).size();j++)
+			{
+				nPoints += this.get(i).get(j).size();
+			}
+		}
+	}
+	/** returns copies (clones) of all curve points in one array 
+	 * (needed to build KD tree) **/
+	public Point [] getAllPointsInArray()
+	{
+		Point [] allPoints;
+		Curve curve;
+		int i,j,k;
+		int nCount =0;
+		
+		if (!bPointsCounted)
+			this.countPoints();
+		allPoints = new Point[(int) nPoints];
+		
+		
+		
+		//looping through frames		
+		for (i=0;i<this.size();i++)
+		{
+			//looping through curves
+			for (j=0;j<this.get(i).size();j++)
+			{
+				curve=this.get(i).get(j);
+				//looping through points
+				for (k=0;k<curve.size();k++)				 
+				{
+					allPoints[nCount]=curve.get(k).clone();
+					nCount++;
+				}
+			}
+		}
+		
+		return allPoints;
+		
+	}
+
 }
 

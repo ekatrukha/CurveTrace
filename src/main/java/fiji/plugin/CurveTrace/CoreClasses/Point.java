@@ -1,15 +1,17 @@
 package fiji.plugin.CurveTrace.CoreClasses;
 
+import fiji.plugin.CurveTrace.KDTree.IPoint;
+
 /**
  *	Point class, contains coordinates and features of contour points
  */
 
-public class Point implements Cloneable {
+public class Point implements Cloneable, IPoint {
 
 	/**X and Y coordinate of a point **/
 	public float[] coords;
 	/**angle of normal (measured from the Y axis) in radians **/
-	public float angle;
+	public Normale angle;
 	/** width of curve at this point (SD of Gaussian if fitted) **/
 	public float width;
 	/** Gaussian amplitude at the point (if fitted) **/
@@ -35,7 +37,7 @@ public class Point implements Cloneable {
 		coords = new float[2];
 		coords[0]=coords_in[0];
 		coords[1]=coords_in[1];
-		angle=angle_in;		
+		angle= new Normale(angle_in);		
 		width=width_in;
 		amp=amp_in;
 		bg=bg_in;
@@ -49,12 +51,12 @@ public class Point implements Cloneable {
 		coords = new float[2];
 		coords[0]=x_in;
 		coords[1]=y_in;
-		angle = angle_in;
+		angle = new Normale(angle_in);
 		response = response_in;
 	}
 	public Point clone()
 	{
-		Point pointret = new Point(coords, angle, width, amp, bg, R2,integr_int,response);
+		Point pointret = new Point(coords, (float)angle.val, width, amp, bg, R2,integr_int,response);
 		return pointret;
 	}
 	
@@ -77,13 +79,23 @@ public class Point implements Cloneable {
 		// average angle
 		// it should take into account circular manner
 		// plus PI symmetry in the normale
+		/*
 		angle=(float) (angle%Math.PI);
 		p2.angle=(float) (p2.angle%Math.PI);
 		if(angle>0.5*Math.PI)
 			angle=(float) (angle-Math.PI);
+		if(angle<-0.5*Math.PI)
+			angle=(float) (angle+Math.PI);
 		if(p2.angle>0.5*Math.PI)
-			p2.angle=(float) (p2.angle-Math.PI);		
-		ave.angle = (float) (0.5*(angle+p2.angle));
+			p2.angle=(float) (p2.angle-Math.PI);	
+		if(p2.angle<-0.5*Math.PI)
+			p2.angle=(float) (p2.angle+Math.PI);	
+		if(Math.abs(angle-p2.angle)>0.5*Math.PI)
+			ave.angle = (float) (0.5*(angle+p2.angle+Math.PI));
+		else
+			ave.angle = (float) (0.5*(angle+p2.angle));
+			*/
+		ave.angle=Normale.average(this.angle,p2.angle);
 		
 		// for now just calculate average of everything
 		
@@ -114,6 +126,7 @@ public class Point implements Cloneable {
 		// average angle
 		// it should take into account circular manner
 		// plus PI symmetry in the normale
+		/*
 		angle=(float) (angle%Math.PI);
 		p2.angle=(float) (p2.angle%Math.PI);
 		if(angle>0.5*Math.PI)
@@ -121,6 +134,8 @@ public class Point implements Cloneable {
 		if(p2.angle>0.5*Math.PI)
 			p2.angle=(float) (p2.angle-Math.PI);		
 		ave.angle = (float) ((w*angle+w2*p2.angle));
+		*/
+		ave.angle=Normale.averageWeighted(this.angle,p2.angle,w);
 		
 		// for now just calculate average of everything
 		
@@ -132,5 +147,15 @@ public class Point implements Cloneable {
 		ave.response = (float) ((w*response+w2*p2.response));
 		return ave;		
 		
+	}
+	@Override
+	public double getX() {
+		// TODO Auto-generated method stub
+		return coords[0];
+	}
+	@Override
+	public double getY() {
+		// TODO Auto-generated method stub
+		return coords[1];
 	}
 }

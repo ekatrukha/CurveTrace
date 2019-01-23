@@ -14,7 +14,7 @@
  
     <groupId>sc.fiji</groupId>
     <artifactId>CurveTrace_</artifactId>
-    <version>0.3.2</version>
+    <version>0.3.3</version>
  
     <name>CurveTrace</name>
     <description>CurveTrace Plugin for ImageJ</description>
