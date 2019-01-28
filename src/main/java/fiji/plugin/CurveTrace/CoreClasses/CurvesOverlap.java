@@ -16,7 +16,8 @@ public class CurvesOverlap {
 	public ArrayList<int []> indexes;
 	/** averaged points**/
 	public ArrayList<Point> averaged_points;
-	/** type of overlap **/
+	/** type of overlap, there are 5
+	 * overlap types 0 = FULL, 1 = EXTENSION, 2 = BRANCHING, 3 = CROSS, 4= NONE **/
 	public int nOvelapType;
 	/** direction of overlap (points numbering of curve2 with respect to curve1 **/
 	public int nOverlapDirection;

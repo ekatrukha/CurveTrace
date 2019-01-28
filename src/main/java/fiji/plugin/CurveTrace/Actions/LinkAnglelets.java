@@ -4,6 +4,7 @@ import java.awt.Color;
 import java.util.ArrayList;
 
 
+import fiji.plugin.CurveTrace.CurveTraceConstants;
 import fiji.plugin.CurveTrace.CoreClasses.Chain;
 import fiji.plugin.CurveTrace.CoreClasses.Curve;
 import fiji.plugin.CurveTrace.CoreClasses.CurveSet;
@@ -98,21 +99,32 @@ public class LinkAnglelets implements PlugIn {
 		if(!showLinkingDialog())
 			return;
 		
+
 		
 		finalcurveset =curvestack.get(0);
 		
 		image_overlay = new Overlay();
-		if(bLinkDebug)
+		
+		
+		
+		imp = IJ.getImage();
+		if(null == imp)
+		{
+			IJ.noImage();	    
+			return;
+		}	
+		
+		//let's log stuff
+		LALog();
+		
+		//check image size if want to display debug information
+		if(bLinkDebug || bCumulProj)
 		{			
-			imp = IJ.getImage();
-			if(null == imp)
-			{
-				IJ.noImage();	    
-				return;
-			}	
+
 			if(imp.getStackSize()!=curvestack.nFramesTotal)
 			{
-				IJ.error("Frame number of image is not the same as curve tracings!");
+				IJ.error("Frame number of image is not the same as curve tracings! \n"
+						+ "(Required for intermediate linking/cumulative proj display)");
 				return;
 			}
 			
@@ -125,15 +137,13 @@ public class LinkAnglelets implements PlugIn {
 		IJ.showProgress(0, curvestack.size());
 		for (i=1;i<curvestack.size();i++)
 		{
-
+			
+			//'gradual' linking: link 1&2 then link (1&2)&3, then ((1&2)&3)&4 ... etc
 			finalcurveset = linkTwoCurveSets(finalcurveset,curvestack.get(i));
-			/*finalcurveset.bSelfLinked = false;
-			while (!finalcurveset.bSelfLinked)
-			{
-				finalcurveset=selfLinkCurveSet(finalcurveset);
-			}*/
 			
 			IJ.showProgress(i, curvestack.size());
+			
+			//show intermediate linking for debug
 			if(bLinkDebug)
 			{
 				curvestack.get(i).nFrame=i;
@@ -164,7 +174,8 @@ public class LinkAnglelets implements PlugIn {
 	
 
 	
-	/** function linking two curvesets to one **/
+	/** function linking two curvesets 
+	 * @return one linked curveset **/
 	public CurveSet linkTwoCurveSets(CurveSet curveset1, CurveSet curveset2)
 	{
 		CurveSet mergedcs = new CurveSet();
@@ -196,18 +207,21 @@ public class LinkAnglelets implements PlugIn {
 				overlap.curves_ind[1]=j;
 				
 				//DEBUG
-				if (overlap.bDirectConflict)
-				{
-					IJ.log("--------CHAIN TO CHAIN BEG ---------");
-					IJ.log("Frame "+Integer.toString(curveset1.nFrame) + " and "+Integer.toString(curveset2.nFrame));
-					IJ.log("Curve "+Integer.toString(i+1) + " and "+Integer.toString(j+1));
-					IJ.log("Overlap type "+Integer.toString(overlap.nOvelapType) );
-					String indices = "indx ";
-					for (int h=0;h<overlap.dirChange.size();h++)
-						indices = indices +Integer.toString(overlap.dirChange.get(h))+" ";
-					IJ.log("Indices "+indices + Integer.toString(overlap.nOverlapSize));
-					IJ.log("--------CHAIN TO CHAIN END ---------");
-				}
+				//if there is change in the curve direction during overlap
+//				if (overlap.bDirectConflict)
+//				{
+//					
+//					IJ.log("--------CHAIN TO CHAIN BEG ---------");
+//					IJ.log("Frame "+Integer.toString(curveset1.nFrame) + " and "+Integer.toString(curveset2.nFrame));
+//					IJ.log("Curve "+Integer.toString(i+1) + " and "+Integer.toString(j+1));
+//					IJ.log("Overlap type "+Integer.toString(overlap.nOvelapType) );
+//					String indices = "indx ";
+//					for (int h=0;h<overlap.dirChange.size();h++)
+//						indices = indices +Integer.toString(overlap.dirChange.get(h))+" ";
+//					IJ.log("Indices "+indices + Integer.toString(overlap.nOverlapSize));
+//					IJ.log("--------CHAIN TO CHAIN END ---------");
+//					
+//				}
 				
 				//consider only full or extension overlaps
 				if (overlap.nOvelapType<2)
@@ -218,10 +232,6 @@ public class LinkAnglelets implements PlugIn {
 					alloverlaps.add(overlap);
 					curveschecked1[i]=true;
 					curveschecked2[j]=true;
-					/*
-					mergedcs.add(mergeCurves(curveset1.get(i),curveset2.get(j), overlap));
-					curveschecked1[i]=true;
-					curveschecked2[j]=true;*/
 					
 				}							
 			}//nCurves2 cycle end
@@ -230,6 +240,7 @@ public class LinkAnglelets implements PlugIn {
 		}//nCurves1 cycle end
 		
 		//build chains of connectivity
+		//they will be stored in allchains member
 		extractChains(nCurves);
 		if(bLinkDebug)
 		{
@@ -868,10 +879,10 @@ public class LinkAnglelets implements PlugIn {
 		GenericDialog linkingD = new GenericDialog("Linking parameters");
 		
 		linkingD.addNumericField("Max distance between points in overlap:", Prefs.get("CurveTrace.linkPointDistance", 4), 2, 4,"pixels");
-		linkingD.addNumericField("Max normale angle difference between points in overlap:", Prefs.get("CurveTrace.linkAngleDistance", 4), 2, 4,"degrees");
-		linkingD.addNumericField("Minimum number of points in overlap:", Prefs.get("CurveTrace.linkOverLapThreshold", 4), 0, 3,"points");
-		linkingD.addNumericField("Fraction of overlap to full merge curves (0-1):", Prefs.get("CurveTrace.linkFullOverlapF", 0.8), 2, 4,"fraction");
-		linkingD.addNumericField("Overlap distance to ends for extention overlap (0-1):", Prefs.get("CurveTrace.linkExtensionOverlapF", 0.05), 2, 4,"fraction");		
+		linkingD.addNumericField("Max normale angle difference between points in overlap:", Prefs.get("CurveTrace.linkAngleDistance", 45), 2, 4,"degrees");
+		linkingD.addNumericField("Minimum number of points in overlap:", Prefs.get("CurveTrace.linkOverLapThreshold", 5), 0, 3,"points");
+		linkingD.addNumericField("Fraction of overlap to full merge curves (0-1):", Prefs.get("CurveTrace.linkFullOverlapF", 0.7), 2, 4,"fraction");
+		linkingD.addNumericField("Overlap distance to ends for extention overlap (0-1):", Prefs.get("CurveTrace.linkExtensionOverlapF", 0.08), 2, 4,"fraction");		
 		linkingD.addCheckbox("Show intermediate linking information?", Prefs.get("CurveTrace.linkDebug", false));
 		linkingD.addCheckbox("Generate cumulative projection?", Prefs.get("CurveTrace.linkCumulProj", false));
 		linkingD.addCheckbox("Update Results Table", Prefs.get("CurveTrace.bLAUpdateResults", false));
@@ -901,6 +912,24 @@ public class LinkAnglelets implements PlugIn {
 		Prefs.set("CurveTrace.bMSUpdateResults", bLAUpdateResults);
 		
 		return true;
+	}
+	/** Logging user specified parameters **/
+	
+	void LALog()
+	{
+		IJ.log(" --- CurveTrace plugin version " + CurveTraceConstants.CurveTraceVersion + " --- ");
+		IJ.log("Link Anglets parameters");
+		IJ.log("Max distance between points in overlap: "+Double.toString(dPointDistance)+" pixels");
+		IJ.log("Max normale angle difference between points in overlap: "+Double.toString(dAngleDistance*180/Math.PI)+" degrees");
+		IJ.log("Minimum number of points in overlap: "+Integer.toString(nOverLapThreshold));
+		IJ.log("Fraction of overlap to full merge curves (0-1): "+Double.toString(dFullOverlapF)+" fraction");
+		IJ.log("Overlap distance to ends for extention overlap (0-1): "+Double.toString(dExtensionOverlapF)+" fraction");
+		IJ.log("Show intermediate linking information: "+Boolean.toString(bLinkDebug));
+		IJ.log("Generate cumulative projection: "+Boolean.toString(bCumulProj));
+		IJ.log("Update Results Table: "+Boolean.toString(bLAUpdateResults));
+		
+		IJ.log("Image title: \"" + imp.getTitle() + "\"");	
+
 	}
 
 }

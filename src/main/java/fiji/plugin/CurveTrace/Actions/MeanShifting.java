@@ -42,7 +42,6 @@ public class MeanShifting implements PlugIn {
 		Curve curve;
 		Point point;
 		float x,y;
-		float [] new_coords;
 		ArrayList<IPoint> locatedP;
 		TwoDRectangle area;
 				
@@ -108,11 +107,68 @@ public class MeanShifting implements PlugIn {
 		
 		
 	}
+
+	/** function modifies coordinates of point_in by calculating mean shift
+	 * from locatedP array (weighted average with kernel of specified radius and angle cone**/
+	public void averagePosition(ArrayList<IPoint> locatedP, Point point_in)
+	{
+		float xaver=0;
+		float yaver=0;
+		float weightaver=0;
+		double anglex,lenx, weightx;
+		double x,y;
+		//double dx,dy, directionx;
+		Normale angle;//, direction;
+		int i;
+		Point locPoint;
+		
+		angle=point_in.angle;
+		x=point_in.coords[0];
+		y=point_in.coords[1];
+		for (i=0;i<locatedP.size();i++)
+		{
+
+			locPoint =(Point)locatedP.get(i);
+			//see if it is the same point
+//			dx=locPoint.coords[0]-x;
+//			dy=locPoint.coords[1]-y;
+//			
+//			if(Math.abs(dx)<0.0001 && Math.abs(dy)<0.0001)
+//			{
+//				weightx=1.0;
+//				
+//			}
+//			else
+//			{
+				//contribution of angle difference between curves normales
+				anglex=Normale.Sdist(angle, locPoint.angle);
+				anglex=Math.exp(-0.5*Math.pow(anglex/dAngle,2));
+				
+				//contribution of direction	
+//				direction = new Normale(Math.atan2(dy, dx));
+//				directionx = Normale.Sdist(angle, direction);
+//				directionx = Math.exp(-0.5*Math.pow(directionx/dAngle,2));
+				
+				//contribution of distance between points
+				lenx=Math.sqrt(Math.pow(x-locPoint.coords[0],2)+Math.pow(y-locPoint.coords[1],2));
+				lenx = Math.exp(-0.5*Math.pow(lenx/dRadius,2));
+				
+				weightx=anglex*lenx;
+//				weightx=anglex*lenx*directionx;
+////			}
+			weightaver+=weightx;
+			xaver+=locPoint.coords[0]*weightx;
+			yaver+=locPoint.coords[1]*weightx;
+		}
+		point_in.coords[0]=xaver/weightaver;
+		point_in.coords[1]=yaver/weightaver;
+		
+	}
 	public boolean showMeanShiftingDialog()
 	{
 		GenericDialog shiftingD = new GenericDialog("Mean-shifting parameters");
 		shiftingD.addNumericField("Kernel's radius:", Prefs.get("CurveTrace.meanShiftR", 5), 0, 3," pixels");
-		shiftingD.addNumericField("Angle cone (0-90):", Prefs.get("CurveTrace.meanShiftAngle", 45), 0, 3," degrees");
+		shiftingD.addNumericField("Angle cone (0-90):", Prefs.get("CurveTrace.meanShiftAngle", 25), 0, 3," degrees");
 		shiftingD.addCheckbox("Ignore frame number?", Prefs.get("CurveTrace.bMSIgnoreFrame", false));
 		shiftingD.addCheckbox("Update Results Table", Prefs.get("CurveTrace.bMSUpdateResults", false));
 		shiftingD.setResizable(false);
@@ -130,46 +186,5 @@ public class MeanShifting implements PlugIn {
 		bMSUpdateResults = shiftingD.getNextBoolean();
 		Prefs.set("CurveTrace.bMSUpdateResults", bMSUpdateResults);
 		return true;
-	}
-	/** function modifies coordinates of point_in by calculating mean shift
-	 * from locatedP array (weighted average with kernel of specified radius and angle cone**/
-	public void averagePosition(ArrayList<IPoint> locatedP, Point point_in)
-	{
-		float xaver=0;
-		float yaver=0;
-		float weightaver=0;
-		double anglex,lenx,weightx;
-		double x,y;
-		Normale angle;
-		int i;
-		Point locPoint;
-		
-		angle=point_in.angle;
-		x=point_in.coords[0];
-		y=point_in.coords[1];
-		for (i=0;i<locatedP.size();i++)
-		{
-			/*
-			 * TODO correct angle calculations,
-			 * insert Normale class version
-			*/
-			locPoint =(Point)locatedP.get(i);
-			/*
-			anglex=Math.cos(angle-locPoint.angle.val);
-			anglex=Math.acos(anglex);
-			anglex=Math.min(anglex, Math.PI-anglex);
-			*/
-			anglex=Normale.Sdist(angle, locPoint.angle);
-			anglex=Math.exp(-0.5*Math.pow(anglex/dAngle,2));
-			lenx=Math.sqrt(Math.pow(x-locPoint.coords[0],2)+Math.pow(y-locPoint.coords[1],2));
-			lenx = Math.exp(-0.5*Math.pow(lenx/dRadius,2));
-			weightx=anglex*lenx;
-			weightaver+=weightx;
-			xaver+=locPoint.coords[0]*weightx;
-			yaver+=locPoint.coords[1]*weightx;
-		}
-		point_in.coords[0]=xaver/weightaver;
-		point_in.coords[1]=yaver/weightaver;
-		
 	}
 }
