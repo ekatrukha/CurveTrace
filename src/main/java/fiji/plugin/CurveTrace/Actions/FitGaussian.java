@@ -149,6 +149,7 @@ public class FitGaussian implements PlugIn {
 					maxI=Double.MIN_VALUE;
 					minI=Double.MAX_VALUE;
 					meanI=0;
+					int maxInd=(int)Math.round(0.5*nLineLength);
 					for(i=0;i<nLineLength;i++)
 					{
 						//calculating average intensity across the line
@@ -165,13 +166,16 @@ public class FitGaussian implements PlugIn {
 						}
 						intP=intP/(float)nLineWidth;
 						if(intP>maxI)
+						{
 							maxI=intP;
+							maxInd =i;
+						}
 						if(intP<minI)
 							minI=intP;
 						dFitData[1][i]=intP;
 						meanI+=intP;
 					}
-					fitlma = new LMA(new OneDGaussianBG(), new double[] {maxI, 0, dSD,minI}, dFitData);
+					fitlma = new LMA(new OneDGaussianBG(), new double[] {maxI, dFitData[0][maxInd], dSD,minI}, dFitData);
 					fitlma.maxIterations=10;
 					bFitException=false;
 					try

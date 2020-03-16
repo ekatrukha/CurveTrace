@@ -1851,13 +1851,14 @@ public class Steger_source implements PlugIn
 		final double threshold_tmp_ip_max = threshold_tmp_ip.getMax();
 		final double range = threshold_tmp_ip_max - threshold_tmp_ip_min;
 		//final ImagePlus threshold_imp_fl = new ImagePlus("Threshold map float", threshold_tmp_ip);
+		//threshold_imp_fl.show();
 		//final ImageProcessor threshold_ip = threshold_tmp_ip.convertToByteProcessor(); // final to make accessible in anonymous inner class
 		final ImagePlus threshold_imp = new ImagePlus("Threshold map", threshold_tmp_ip); // final to make accessible in anonymous inner class		
 		final double threshold_map_scale_factor = (range) / 256;
 		threshold_imp.resetDisplayRange();
 		threshold_imp.show();
 		
-		//threshold_imp_fl.show();
+		
 		
 	
 		ThresholdSal thresholds_gd = new ThresholdSal(); // RSLV: make NonBlockingGenericDialog();
