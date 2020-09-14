@@ -1,6 +1,7 @@
 package fiji.plugin.CurveTrace.Actions;
 
 import fiji.plugin.CurveTrace.Fit.OneDGaussianBG;
+import fiji.plugin.CurveTrace.Fit.OneDGaussianBGMeanFixed;
 import fiji.plugin.CurveTrace.CoreClasses.Curve;
 import fiji.plugin.CurveTrace.CoreClasses.CurveSet;
 import fiji.plugin.CurveTrace.CoreClasses.CurveStack;
@@ -12,6 +13,7 @@ import ij.gui.GenericDialog;
 import ij.plugin.PlugIn;
 import ij.process.ImageProcessor;
 import jaolho.data.lma.LMA;
+import jaolho.data.lma.LMAFunction;
 
 public class FitGaussian implements PlugIn {
 	/** main image window */
@@ -38,6 +40,9 @@ public class FitGaussian implements PlugIn {
 	
 	boolean bIgnoreFrame;
 	
+	/** whether to fit mean (X) value of the gaussian, or keep it **/
+	boolean bFitMeanValue;
+	
 	/** if current image is float (32-bit) **/	
 	boolean bImageFloat=false;
 	/** Maximum displacement after fit. Fits displaced further than that will be discarded **/
@@ -62,6 +67,9 @@ public class FitGaussian implements PlugIn {
 		boolean bFitException;
 		
 		LMA fitlma;
+		LMAFunction fitFunction;
+		
+
 		
 		curvestack = new CurveStack();
 
@@ -99,6 +107,13 @@ public class FitGaussian implements PlugIn {
 		IJ.showStatus("Fitting lines...");
 		IJ.showProgress(0, (int)curvestack.nPoints);
 
+		//fit function
+		if(bFitMeanValue)
+			{fitFunction=new OneDGaussianBG();}
+		else
+			{fitFunction=new OneDGaussianBGMeanFixed();}
+		
+		
 		//setting up averaging/profile arrays
 		double [] averagew = new double[nLineWidth];
 		double nHalfWidth = ((float)nLineWidth-1.0)*0.5;
@@ -175,7 +190,10 @@ public class FitGaussian implements PlugIn {
 						dFitData[1][i]=intP;
 						meanI+=intP;
 					}
-					fitlma = new LMA(new OneDGaussianBG(), new double[] {maxI, dFitData[0][maxInd], dSD,minI}, dFitData);
+					if(bFitMeanValue)
+						{fitlma = new LMA(fitFunction, new double[] {maxI, dFitData[0][maxInd], dSD,minI}, dFitData);}
+					else
+						{fitlma = new LMA(fitFunction, new double[] {maxI, dSD,minI}, dFitData);}
 					fitlma.maxIterations=10;
 					bFitException=false;
 					try
@@ -188,16 +206,26 @@ public class FitGaussian implements PlugIn {
 					}
 					if(!bFitException)
 					{
-						dFitAmp  = fitlma.parameters[0];
-						dFitMean = fitlma.parameters[1];
-						dFitSD   = fitlma.parameters[2];
-						dFitBG   = Math.abs(fitlma.parameters[3]);
+						if(bFitMeanValue)
+						{
+							dFitAmp  = fitlma.parameters[0];
+							dFitMean = fitlma.parameters[1];
+							dFitSD   = Math.abs(fitlma.parameters[2]);
+							dFitBG   = Math.abs(fitlma.parameters[3]);
+						}
+						else
+						{
+							dFitAmp  = fitlma.parameters[0];
+							dFitMean = 0;
+							dFitSD   = Math.abs(fitlma.parameters[1]);
+							dFitBG   = Math.abs(fitlma.parameters[2]);
+						}
 					}
 					else 
 						dFitMean=dDispThresh*2.0;
 					
 					
-					if(Math.abs(dFitMean)<dDispThresh && dFitAmp>0)
+					if(Math.abs(dFitMean)<dDispThresh && dFitAmp>0 && (dFitSD<10*dSD))
 					{
 						meanI=meanI/(double)nLineLength;
 						//calculate R2
@@ -221,10 +249,10 @@ public class FitGaussian implements PlugIn {
 						//point.bg=(float) minI;
 						//point.width = (float) 0.0;
 						//point.R2=(float) 0.0;
-						point.amp=(float) (-1.0*(maxI-minI));						
-						point.bg=(float) (-1.0*minI);
+						point.amp =(float) (-1.0*(maxI-minI));						
+						point.bg = (float) (-1.0*minI);
 						point.width = (float) -1.0;
-						point.R2=(float) -1.0;
+						point.R2 = (float) -1.0;
 
 					}
 					nPointCount++;
@@ -255,7 +283,8 @@ public class FitGaussian implements PlugIn {
 		fittingD.addNumericField("Sampling step:", Prefs.get("CurveTrace.fitGsamplestep", 0.5), 2, 4," pixels");
 		fittingD.addNumericField("Line width:", Prefs.get("CurveTrace.fitGlinewidth", 3), 0, 3," pixels");
 		fittingD.addChoice("Intensity interpolation method:", InterpolationMethods, Prefs.get("CurveTrace.fitGinterpolation", "Bilinear"));
-		fittingD.addNumericField("Maximum displacement threshold (fitting is bad):", Prefs.get("CurveTrace.fitDispThresh", 1.6), 2, 4," pixels");
+		fittingD.addCheckbox("Fit mean value?", Prefs.get("CurveTrace.bFitMeanValue", false));
+		fittingD.addNumericField("Maximum mean displacement threshold (fitting is bad):", Prefs.get("CurveTrace.fitDispThresh", 1.6), 2, 4," pixels");
 		
 		fittingD.addChoice("After fitting add to overlay:", OverlayLineType, Prefs.get("CurveTrace.OverlayLineType", "Only lines"));
 		fittingD.addCheckbox("Ignore frame number", Prefs.get("CurveTrace.bIgnoreFrame", false));
@@ -275,7 +304,8 @@ public class FitGaussian implements PlugIn {
 		
 		nIterpolationMethod = fittingD.getNextChoiceIndex();
 		Prefs.set("CurveTrace.fitGinterpolation", InterpolationMethods[nIterpolationMethod]);
-		
+		bFitMeanValue = fittingD.getNextBoolean();
+		Prefs.set("CurveTrace.bFitMeanValue", bFitMeanValue);
 		dDispThresh = (float) fittingD.getNextNumber();
 		Prefs.set("CurveTrace.fitDispThresh", dDispThresh);
 		
