@@ -21,42 +21,36 @@ package fiji.plugin.CurveTrace.stegers;
 
 import java.awt.Color;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 
-/*
-import stegers.chord;
-import stegers.contour;
-import stegers.convol;
-import stegers.correctionx;
-import stegers.correctx;
-import stegers.crossref;
-import stegers.doublepoint;
-import stegers.junction;
-import stegers.offset;
-import stegers.position;
-import stegers.region;
-import stegers.contour_class;
-import stegers.ThresholdSal;
-*/
+import org.apache.commons.math3.analysis.MultivariateFunction;
 
+import fiji.plugin.CurveTrace.Fit.OneDGaussian;
 import ij.IJ;
 import ij.ImagePlus;
 import ij.Prefs;
-import ij.gui.Arrow;
 import ij.gui.DialogListener;
 import ij.gui.GenericDialog;
-import ij.gui.OvalRoi;
-import ij.gui.Overlay;
 import ij.gui.PolygonRoi;
 import ij.gui.Roi;
+import ij.measure.Calibration;
+import ij.measure.Measurements;
 import ij.measure.ResultsTable;
-import ij.plugin.PlugIn;
-import ij.plugin.frame.RoiManager;
+import ij.plugin.ImageCalculator;
+import ij.plugin.filter.Analyzer;
+import ij.plugin.filter.GaussianBlur;
+import ij.process.AutoThresholder.Method;
+import ij.process.AutoThresholder;
 import ij.process.FloatProcessor;
 import ij.process.ImageProcessor;
+import ij.process.ImageStatistics;
 import ij.process.LUT;
+import jaolho.data.lma.LMA;
 
-public class Steger_source implements PlugIn
+
+
+public class Steger_tracer implements MultivariateFunction
 {
 	
 	/* Constants */
@@ -66,42 +60,31 @@ public class Steger_source implements PlugIn
 	   maximum lies within pixel b and vice versa.  This presents no problem since
 	   linking algoritm will take care of this. */
 	public static double PIXEL_BOUNDARY = 0.6;
-	public static double SIGMA = 1.8;
+	public double SIGMA = 1.8;
 	 /** Extract bright lines if true and extract dart lines otherwise*/
-	public static boolean MODE_LIGHT = true;
-	public static boolean extend_lines = true;
-	public static boolean split_lines = true;
-	public static boolean correct_pos = true;
-	public static boolean compute_width = true;
+	public boolean MODE_LIGHT = true;
+	public boolean extend_lines = true;
+	public boolean split_lines = true;
+	public boolean correct_pos = true;
+	public boolean compute_width = true;
 
 	
-	public static boolean DEBUG_MODE = false;
-	public static boolean DEBUG_show_subpixel = false;
-	public static boolean DEBUG_show_tracing = false;
-	public static boolean DEBUG_show_extensions = false;
-	public static boolean DEBUG_show_eigenvector = false;
-	public static boolean DEBUG_show_eigenvalue = false;
-	public static boolean DEBUG_show_junctions = false;
-	
-	
-	/** Type of lines added to RoiManager and Overlay*/
-	public static int nRoiLinesType = 1;
-	/** Color of lines added to RoiManager and Overlay*/
-	public static int nRoiLinesColor = 0;
+		
+
 	/** Minimum number of nodes that line can have. Shorter lines will be removed */
-	public static int nMinNumberOfNodes = 0;
+	public int nMinNumberOfNodes = 0;
 	
 	//int nRoiColor;
 	/** Maximum angular difference of neighboring line points allowed during
 	   linking.  If all feasible neighbors have a larger angular difference the
 	   line is stopped at that point. */
-	public static double MAX_ANGLE_DIFFERENCE = Math.PI/6.0;
+	public double MAX_ANGLE_DIFFERENCE = Math.PI/6.0;
 	/** Maximum length by which a line is possibly extended in order to find a
 	   junction with another line. */
-	public static double MAX_LINE_EXTENSION = SIGMA*2.5;
+	public double MAX_LINE_EXTENSION = SIGMA*2.5;
 	
 	/** Maximum search line width. */
-	public static double MAX_LINE_WIDTH = (2.5*SIGMA);
+	public double MAX_LINE_WIDTH = (2.5*SIGMA);
 	
 	/** This constant is introduced because for very narrow lines the facet model
 	   width detection scheme sometimes extracts the line width too narrow.  Since
@@ -109,13 +92,13 @@ public class Steger_source implements PlugIn
 	   to lines of almost zero width, especially since the bilinear interpolation
 	   in correct.c will tend to overcorrect.  Therefore it is wise to make the
 	   extracted line width slightly larger before correction.  */
-	public static double LINE_WIDTH_COMPENSATION =1.05;
+	public double LINE_WIDTH_COMPENSATION =1.05;
 
 	/** Minimum line width allowed (used for outlier check in fix_locations()) */
-	public static double MIN_LINE_WIDTH = 0.1;
+	public double MIN_LINE_WIDTH = 0.1;
 	
 	/** Maximum contrast allowed (used for outlier check in fix_locations()) */
-	public static double MAX_CONTRAST=275.0;
+	public double MAX_CONTRAST=275.0;
 	
 	
 	/** Image width */
@@ -123,21 +106,12 @@ public class Steger_source implements PlugIn
 	/** Image height */
 	public long height;
 	
-	/** current slice (frame) */
-	int nFrame = 0;
-	/** total number of frames in image */
-	int nStackSize;
+	/** original image minus average value, for MSE estimation**/
+	FloatProcessor origMinusMean= null; 
+	public FloatProcessor ipMSE;
+	public FloatProcessor ipCurveN;
 	
-	/** current slice in stack */
-	int nCurrentSlice;
-	/** Results table */
-	ResultsTable ptable = ResultsTable.getResultsTable();
-	/** Total number of contours found */	
-	int nContNumTotal = 0;
-	/** whether results table had been cleaned*/
-	boolean bClearResults = false;
-	
-	
+	public int nCurveN;
 		/* Constant arrays */
 
 		/** This table contains the three appropriate neighbor pixels that the linking
@@ -167,217 +141,65 @@ public class Steger_source implements PlugIn
 		  { {  1, 1 }, { -1,-1 } }
 		};
 		
-		
-	/** main image window */
-	public ImagePlus imp; 	
+	ImagePlus impx;
+	ResultsTable rt;
+	Analyzer anLoc;
+	
+	//public ResultsTable ptable = new ResultsTable();
+	
 	/** currently active processor */
 	public ImageProcessor ip; 
-	/** link to roi manager */
-	RoiManager roi_manager;
-	/** overlay of main image */
-	Overlay image_overlay; 
+	/** image calibration**/
+	Calibration calIm;
 	
 	/** Array of all found contours */
-	ArrayList<contour> cont;
+	public ArrayList<contour> cont;
 	/** Array containing junctions */
-	ArrayList<junction> junc; 
+	public ArrayList<junction> junc; 
+	/** saliency thresholds**/
+	double [] salth;
 	/** saliency lower threshold */
-	double low; 
+	public double low; 
 	/** saliency upper threshold */
-	double high;
+	public double high;
 	
 	/**Largest eigenvalue of image */
-	double[] eigval; 
+	public double[] eigval; 
 	/** eigenvector x component of image */
-	double[] normx; 
+	public double[] normx; 
 	/** eigenvector y component of image */
-	double[] normy; 
+	public double[] normy; 
 	/** x derivative of image */
-	double[] gradx; 
+	public double[] gradx; 
 	/** y derivative of image */
-	double[] grady; 
+	public double[] grady; 
 	/** subpixel resolved position of maxima in x*/
-	double[] posx; 
+	public double[] posx; 
 	/** subpixel resolved position of maxima in y*/
-	double[] posy;
+	public double[] posy;
 		
 	/** thresholded array */
 	int[] ismax;
 	
-	@Override
-	public void run(String arg) {	
-		
-
-		// get active image
-		imp = IJ.getImage();
-		if(null == imp)
-		{
-			IJ.noImage();	    
-			return;
-		}		
-		else if (imp.getType() != ImagePlus.GRAY8 && imp.getType() != ImagePlus.GRAY16 && imp.getType() != ImagePlus.GRAY32) 
-		{
-		    IJ.error("8, 16 or 32-bit grayscale image required");
-		    return;
-		}
-		
-		// get active imageprocessor
-		ip = imp.getProcessor();
-		
-		nCurrentSlice = imp.getCurrentSlice();
-				
-		//width and height of image
-		width = ip.getWidth();
-		height = ip.getHeight();
-		
-		nStackSize = imp.getStackSize();
-		
-		//show parameters dialog
-		if(!show_parameters_dialog())
-			return;
-		
-		compute_line_points();
-		
-		if(!get_threshold_levels())
-			return ;
-		
-		
-		
-		IJ.showStatus("Finding lines...");
-		IJ.showProgress(0, nStackSize);
-		image_overlay = new Overlay();
-		
-		for(nFrame=0; nFrame<nStackSize; nFrame++)
-		{
-			imp.setSliceWithoutUpdate(nFrame+1);
-			ip = imp.getProcessor();
-			compute_line_points();
-			
-			ismax = getismax(low,high); //move it to compute contours function
-
-			
-			
-			if(DEBUG_show_subpixel)
-				add_subpixelxy();
-			
-			compute_contours();
-			
-			if(compute_width)
-			{
-				compute_line_width(gradx,grady);
-			}
-				
-
-			if(DEBUG_show_eigenvector)
-				add_eigenvectors();
-			if(DEBUG_show_junctions)
-				add_junctions();
-			
-			show_contours();
-			nContNumTotal+= cont.size();
-			//clear results table if we found anything
-			if (nContNumTotal>0 && !this.bClearResults)
-			{
-				ptable = ResultsTable.getResultsTable();
-				ptable.setPrecision(5);
-				ptable.reset(); // erase results table
-				this.bClearResults = true;
-			}
-			//add lines characteristics to results table
-			if (nContNumTotal>0)
-				add_results_table();
-			
-			IJ.showProgress(nFrame, nStackSize);
-	}//nFrame cycle
 	
-		IJ.showProgress(nStackSize, nStackSize);
-		IJ.showStatus("Done.");
-		ptable.show("Results");
-		imp.setPosition(nCurrentSlice);
-		imp.draw();
-		imp.setActivated();
-	}//end of run method
-
+	public double [] threshold_est_min;
 	
-	/** Function adding to Roi transverse eigenvectors at each pixel */
-	private void add_eigenvectors() 
-	{
-		
-		
-		Arrow eigenvector_arr;
-
-		int l;
-			
-		float[] dxx =new float[2];
-		float[] dyy =new float[2];
-		 for (int zzpx=0; zzpx<width; zzpx++) 
-		    {
-				for (int zzpy=0; zzpy<height; zzpy++) 
-				{
-					l = (int) LINCOOR(zzpy,zzpx,width);
-			    	
-			    	//* Show vectors directions
-			    	 dxx[0] = (float) (zzpx+0.5*normx[l]+0.5);
-			    	 dxx[1] = (float) (zzpx-0.5*normx[l]+0.5);
-			    	 dyy[0] = (float) (zzpy-0.5*normy[l]+0.5);
-			    	 dyy[1] = (float) (zzpy+0.5*normy[l]+0.5);
-			    	 
-			    	 eigenvector_arr = new Arrow(dxx[0], dyy[0], dxx[1], dyy[1]);		    	
-					 eigenvector_arr.setStrokeColor(Color.GREEN);
-					 eigenvector_arr.setPosition(nFrame+1);
-					 eigenvector_arr.setStrokeWidth(0.05);
-					 eigenvector_arr.setHeadSize(0.5);
-					 image_overlay.add(eigenvector_arr);
-				}
-		    }
-		
-		
-	}
+	public double threshold_est_max;
 	
-	/** Function adding to Roi subpixel position of line points */
-	private void add_subpixelxy() 
-	{
-		
-		
-		OvalRoi resolved_p;
-
-		int l;
-			
-		
-		 for (int zzpx=0; zzpx<width; zzpx++) 
-		    {
-				for (int zzpy=0; zzpy<height; zzpy++) 
-				{
-					l = (int) LINCOOR(zzpy,zzpx,width);
-			    	
-					//* show super-resolved lines positions
-			    	 			    	 
-					 resolved_p = new OvalRoi(posy[l]-0.25,posx[l]-0.25, 0.5, 0.5);
-					 resolved_p.setPosition(nFrame+1);
-			    	 resolved_p.setStrokeColor(Color.RED);
-			    	 image_overlay.add(resolved_p);	
-				}
-		    }
-		
-		
-	}
-
-	/** Function adding to Roi subpixel position of line points */
-	private void add_junctions() 
-	{
-		
-		Roi junc_roi;
-		
-		for(int i=0; i<junc.size();i++)
-		{
-			junc_roi = new Roi(junc.get(i).y-0.5,junc.get(i).x-0.5,1,1);
-			junc_roi.setPosition(nFrame+1);
-			junc_roi.setStrokeColor(Color.MAGENTA);
-	    	image_overlay.add(junc_roi);	
-			
-		}
-		
-	}	
+	/** min of saliency map **/
+	public double threshold_tmp_ip_min;
+	/** max of saliency map **/
+	public double threshold_tmp_ip_max;
+	
+	/** estimated SD of current imageprocessor**/
+	public float imgSD;
+	
+	/** maximum intensity of current imageprocessor**/
+	public float imgMAX;
+	
+	public int nEvalCount=0;
+	
+	public ArrayList<Double[]> ptable = new ArrayList<Double[]>();
 	
 
 	/**   This function links the line points into lines.  The input to this function
@@ -418,8 +240,6 @@ public class Steger_source implements PlugIn
 		contour tmp_cont;
 		boolean add_ext;
 		doublepoint closestpnt;
-		
-		OvalRoi resolved_p;
 		
 		contour_class cls;
 		ArrayList<Float> row = new ArrayList<Float>();              
@@ -513,7 +333,7 @@ public class Steger_source implements PlugIn
 		        cross.get((int) (indx[pos]-1)).done = true;
 		    row.add((float) posx[pos]);
 		    col.add((float) posy[pos]);
-		    if(DEBUG_show_tracing)
+		    /*if(DEBUG_show_tracing)
 		    {
 	    		resolved_p = new OvalRoi(posy[pos]-0.25,posx[pos]-0.25, 0.5, 0.5);
 	    		resolved_p.setStrokeColor(Color.YELLOW);
@@ -522,7 +342,7 @@ public class Steger_source implements PlugIn
 	    		imp.setOverlay(image_overlay);
 	    		imp.updateAndRepaintWindow();
 	    		imp.show();
-		    }
+		    }*/
 		    
 		    // Select line direction. 
 		    
@@ -753,6 +573,7 @@ public class Steger_source implements PlugIn
 		          resp.add((float) interpolate_response(eigval,x,y,posx[pos],posy[pos],width,height));
 		          num_pnt++;
 		          
+		          /*
 		          if(DEBUG_show_tracing)
 		          {
 		    		resolved_p = new OvalRoi(posy[pos]-0.25,posx[pos]-0.25, 0.5, 0.5);
@@ -762,7 +583,7 @@ public class Steger_source implements PlugIn
 		    		imp.setOverlay(image_overlay);
 		    		imp.updateAndRepaintWindow();
 		    		imp.show();
-		          }
+		          }*/
 		          
 		          // If the appropriate neighbor is already processed a junction point is found. 
 		        if (label[pos] > 0) {
@@ -1043,6 +864,7 @@ public class Steger_source implements PlugIn
 		               else
 		                 end_angle = beta+Math.PI;
 		               num_add++;
+		               /*
 		               if(DEBUG_show_extensions)
 		               {
 			    		resolved_p = new OvalRoi(cont.get(m).col.get(j)-0.25,cont.get(m).row.get(j)-0.25, 0.5, 0.5);
@@ -1052,12 +874,13 @@ public class Steger_source implements PlugIn
 			    		imp.setOverlay(image_overlay);
 			    		imp.updateAndRepaintWindow();
 			    		imp.show();
-		               }
+		               }*/
 		               add_ext = true;
 		               break;
 		             } else {
 		               extx.add((float) nextpx);
 		               exty.add((float) nextpy);
+		               /*
 		               if(DEBUG_show_extensions)
 		               {
 			    		resolved_p = new OvalRoi(nextpy-0.25,nextpx-0.25, 0.5, 0.5);
@@ -1067,7 +890,7 @@ public class Steger_source implements PlugIn
 			    		imp.setOverlay(image_overlay);
 			    		imp.updateAndRepaintWindow();
 			    		imp.show();
-		               }
+		               }*/
 		               num_add++;
 		             }
 		           }
@@ -1379,9 +1202,12 @@ public class Steger_source implements PlugIn
 	/** 
 	 * Get valid line points (maxima within boundary of pixel, plus higher than low and high)
 	 * */
-	public int[] getismax(double low, double high)
+	public void getismax(double [] arg)
 	{
-		int [] iismax = new int [(int)(width*height)];
+		double low=arg[0];
+		double high=arg[1];
+		
+		ismax = new int [(int)(width*height)];
 		int l;
 		double val;
 		for(int py = 0; py < height; ++py)
@@ -1399,22 +1225,22 @@ public class Steger_source implements PlugIn
 						if(val>=low)
 						{
 							if(val>=high)
-								iismax[l]=2;
+								ismax[l]=2;
 							else
-								iismax[l]=1;
+								ismax[l]=1;
 						}
 					
 					}
 					else
-						iismax[l]=0;
+						ismax[l]=0;
 				
 				}
 				else
-					iismax[l]=0;
+					ismax[l]=0;
 			}
 		
 		}
-		return iismax;
+		return;
 
 	}
 	
@@ -1594,220 +1420,6 @@ public class Steger_source implements PlugIn
 	  return gradxy;
 	}
 
-	/**
-	 * Function adding all found contours to results table
-	 * */
-	public void add_results_table()
-	{
-		
-		int i,j, num_pnt;
-		contour tmp_cont;
-		String Roi_name ="contour_f_";
-		String Cont_name;
-		Roi_name = Roi_name.concat(Integer.toString(nFrame+1));
-		Roi_name = Roi_name.concat("_c_");
-
-		for (i=0; i<cont.size(); i++) 
-		  {
-			  Cont_name = Roi_name.concat(Integer.toString(i+1));
-			  tmp_cont = cont.get(i);  
-			  num_pnt = (int) tmp_cont.num;
-			  for(j=0;j<num_pnt;j++)
-			  {
-				  ptable.incrementCounter();
-				  ptable.addLabel(Cont_name);
-				  ptable.addValue("Frame Number", nFrame+1);
-				  ptable.addValue("Contour Number", i+1);
-				  ptable.addValue("Point Number", j+1);
-				  ptable.addValue("X_(px)",tmp_cont.col.get(j));
-				  ptable.addValue("Y_(px)",tmp_cont.row.get(j));
-				  ptable.addValue("Angle_of_normal_(radians)",tmp_cont.angle.get(j));
-				  ptable.addValue("Response",tmp_cont.response.get(j));
-				  if(compute_width)
-				  {
-					  ptable.addValue("Width_left_(px)",tmp_cont.width_l.get(j));
-					  ptable.addValue("Width_right_(px)",tmp_cont.width_r.get(j));
-					  if (correct_pos)
-					  {
-						  ptable.addValue("Assymetry",tmp_cont.asymmetry.get(j));
-						  //does not make much sense
-						  ptable.addValue("Contrast",tmp_cont.contrast.get(j));
-					  }
-				  }
-				  
-			  }
-		  }
-
-	}
-	
-	/**
-	 * Function adding all found contours to overlay and roi manager
-	 * */
-	public void show_contours()
-	{
-			
-		  PolygonRoi polyline_p;
-		  contour tmp_cont;
-		  long num_pnt;
-		  String Roi_name;
-		  int i,j;
-		  
-		  int color_n = 8;
-		  double nx,ny;
-		  double line_avg_width;
-		
-		  Color[] colors;
-		  Color[] colors_bord;
-		  Color single_main;
-		  Color single_border;
-		  colors = new Color[8];		  
-		  colors_bord = new Color[8];
-		  colors[0] = Color.BLUE;
-		  colors[1] = Color.CYAN;
-		  colors[2] = Color.GREEN;
-		  colors[3] = Color.MAGENTA;
-		  colors[4] = Color.ORANGE;
-		  colors[5] = Color.PINK;
-		  colors[6] = Color.RED;
-		  colors[7] = Color.YELLOW;
-		  
-		  colors_bord[0] = new Color(0,0,139);//dark blue
-		  colors_bord[1] = new Color(0,139,139); //dark cyan
-		  colors_bord[2] = new Color(0,100,0); //dark green
-		  colors_bord[3] = new Color(139,0,139); //dark magenta
-		  colors_bord[4] = new Color(255,140,0); //dark orange
-		  colors_bord[5] = new Color(199,21,133); //mediumvioletred
-		  colors_bord[6] = new Color(139,0,0); //dark red
-		  colors_bord[7] = new Color(153,153,0); //dark yellow
-		  
-		  
-		  Roi_name  = "contour_f_";
-		  Roi_name = Roi_name.concat(Integer.toString(nFrame+1));
-		  Roi_name = Roi_name.concat("_c_");
-		  if(nRoiLinesType>0)
-		  {
-			  //black
-			  if(nRoiLinesColor==1)
-			  {
-				  for(i=0;i<8;i++)
-				  {
-					  colors[i]=Color.BLACK;
-					  colors_bord[i]=Color.GRAY;
-				  }
-			  }
-			  //black
-			  if(nRoiLinesColor==2)
-			  {
-				  for(i=0;i<8;i++)
-				  {
-					  colors[i]=Color.WHITE;
-					  colors_bord[i]=Color.GRAY;
-				  }
-			  }
-			  if(nRoiLinesColor>=3)
-			  {
-				  single_main = colors[nRoiLinesColor-3];
-				  single_border = colors_bord[nRoiLinesColor-3];
-				  for(i=0;i<8;i++)
-				  {
-					  colors[i]=single_main;
-					  colors_bord[i]=single_border;
-				  }
-			  }		  
-			  
-	  		  roi_manager = RoiManager.getInstance();
-			  if(roi_manager == null) roi_manager = new RoiManager();
-			  
-			  
-			  //show contour and add it to Roi manager		
-			  for (i=0; i<cont.size(); i++) 
-			  {
-				  
-				  tmp_cont = cont.get(i);  
-				  num_pnt = tmp_cont.num;
-				  float[] pxs = new float[(int) num_pnt];
-				  float[] pxy = new float[(int) num_pnt];
-				  for(j=0;j<num_pnt;j++)
-				  {
-					  pxs[j]=tmp_cont.row.get(j);
-					  pxy[j]=tmp_cont.col.get(j);
-				  }
-					  			  
-				  polyline_p = new PolygonRoi(pxy, pxs, Roi.POLYLINE);
-				  polyline_p.setPosition(nFrame+1);
-				  polyline_p.setStrokeColor(colors[i%color_n]);
-		
-				  polyline_p.setStrokeWidth(0.0);
-				  polyline_p.setName(Roi_name.concat(Integer.toString(i+1)));
-				  
-				  if(nRoiLinesType == 1 || nRoiLinesType == 3)
-					  	roi_manager.addRoi(polyline_p);
-				  
-				  if(compute_width && nRoiLinesType ==2)
-				  {
-					  line_avg_width = 0;
-					  for(j=0;j<num_pnt;j++)
-					  {
-						  line_avg_width +=tmp_cont.width_l.get(j)+tmp_cont.width_r.get(j);
-					  }				 
-					  line_avg_width =line_avg_width /num_pnt;
-					 //polyline_p.fitSplineForStraightening();
-					  polyline_p.setStrokeWidth(line_avg_width);
-					  polyline_p.updateWideLine((float) line_avg_width);
-				
-	
-					  //imp.setRoi(polyline_p);
-					  //imp.getRoi();
-					  
-					  //roi_manager.runCommand("", colors[i%color_n].toString(), line_avg_width);
-					  roi_manager.addRoi(polyline_p);
-				  }
-				  
-				  
-				  
-				  image_overlay.add(polyline_p);
-				  //polyline_p.setStrokeWidth(0.0);
-				  
-				  //add borders along width of line
-				  if(compute_width && nRoiLinesType ==3)
-				  {
-					  for(j=0;j<num_pnt;j++)
-					  {
-						nx = Math.cos(tmp_cont.angle.get(j));
-				      	ny = Math.sin(tmp_cont.angle.get(j));		
-					  	pxs[j]=(float) (tmp_cont.row.get(j) + nx*tmp_cont.width_l.get(j));
-					  	pxy[j]=(float) (tmp_cont.col.get(j) + ny*tmp_cont.width_l.get(j));
-					  }
-					  polyline_p = new PolygonRoi(pxy, pxs, Roi.POLYLINE);
-					  polyline_p.setStrokeColor(colors_bord[i%color_n]);
-					  polyline_p.setPosition(nFrame+1);
-					  polyline_p.setStrokeWidth(0.1);
-					  image_overlay.add(polyline_p);				  
-	
-					  for(j=0;j<num_pnt;j++)
-					  {
-						nx = Math.cos(tmp_cont.angle.get(j));
-				      	ny = Math.sin(tmp_cont.angle.get(j));
-					  	pxs[j]=(float) (tmp_cont.row.get(j) - nx*tmp_cont.width_r.get(j));
-					  	pxy[j]=(float) (tmp_cont.col.get(j) - ny*tmp_cont.width_r.get(j));
-					  }
-					  polyline_p = new PolygonRoi(pxy, pxs, Roi.POLYLINE);
-					  polyline_p.setStrokeColor(colors_bord[i%color_n]);		
-					  polyline_p.setStrokeWidth(0.1);
-					  polyline_p.setPosition(nFrame+1);
-					  image_overlay.add(polyline_p);				  
-					  
-				  }
-					  			  			  
-			  }//*/
-			  imp.setOverlay(image_overlay);
-			  imp.updateAndRepaintWindow();
-			  imp.show();		  
-			  
-			  roi_manager.setVisible(true);
-			  roi_manager.toFront();
-		  }
-	}
 	
 	/** Provides user with image of all valid points with saliency value at it
 	 * and dialogue to pick thresholds for line detection
@@ -1815,7 +1427,7 @@ public class Steger_source implements PlugIn
 	 * */
 	public boolean get_threshold_levels()
 	{
-		int l;
+		int l,i;
 		double val;
 		
 		
@@ -1844,11 +1456,35 @@ public class Steger_source implements PlugIn
 		}//for cycle
 		
 		
-		
-		
 		threshold_tmp_ip.resetMinAndMax();
-		final double threshold_tmp_ip_min = threshold_tmp_ip.getMin();
-		final double threshold_tmp_ip_max = threshold_tmp_ip.getMax();
+		threshold_tmp_ip_min = threshold_tmp_ip.getMin();
+		threshold_tmp_ip_max = threshold_tmp_ip.getMax();
+		AutoThresholder autoT=new AutoThresholder();
+		ImageStatistics stats = threshold_tmp_ip.getStats();
+		threshold_est_min = new double[4];
+		for (i=0;i<4;i++)
+		{
+			switch (i)
+			{
+				case 0:
+					threshold_est_min[0]=threshold_tmp_ip_min+stats.binSize*(autoT.getThreshold(Method.Huang, stats.histogram)+1);
+					break;
+				case 1:
+					threshold_est_min[1]=threshold_tmp_ip_min+stats.binSize*(autoT.getThreshold(Method.Default, stats.histogram)+1);
+					break;
+				case 2:
+					threshold_est_min[2]=threshold_tmp_ip_min+stats.binSize*(autoT.getThreshold(Method.Otsu, stats.histogram)+1);
+					break;
+				case 3:
+					threshold_est_min[3]=threshold_tmp_ip_min+stats.binSize*(autoT.getThreshold(Method.MinError, stats.histogram)+1);
+					break;
+			}
+		}
+		
+
+		
+		threshold_est_max=threshold_tmp_ip_max;
+		//threshold_est_max=getSaturationLevel(threshold_tmp_ip, 0.35);
 		final double range = threshold_tmp_ip_max - threshold_tmp_ip_min;
 		//final ImagePlus threshold_imp_fl = new ImagePlus("Threshold map float", threshold_tmp_ip);
 		//threshold_imp_fl.show();
@@ -1954,8 +1590,10 @@ public class Steger_source implements PlugIn
 	
 	/** Extract the line width by using a facet model line detector on an image of
 	   the absolute value of the gradient. */
-	void compute_line_width(double[] dx,double[] dy)
+	public void compute_line_width()
 	{
+	  double[] dx = gradx;
+	  double[] dy = grady;
 	  double[]   grad;
 	  int    i, j, k;
 	  int    r, c;
@@ -2130,7 +1768,7 @@ public class Steger_source implements PlugIn
 	   After this, gaps that have been introduced by the width correction are again
 	   closed.  Finally, the position correction is applied if correct_pos is set.
 	   The results are returned in width_l, width_r, and cont. */
-	public static void fix_locations(float[] width_l,float[] width_r, float[] grad_l,float[] grad_r, float[] pos_x, float[] pos_y, contour cont)
+	public void fix_locations(float[] width_l,float[] width_r, float[] grad_l,float[] grad_r, float[] pos_x, float[] pos_y, contour cont)
 	{
 	  int    i;
 	  long    num_points;
@@ -2416,121 +2054,477 @@ public class Steger_source implements PlugIn
 	  return result_m_s;
 	}
 
-
-	public boolean show_parameters_dialog()
+	
+	public void prepareOrigMSE()
 	{
-				
-		int nDetectionType;
-
-		String [] DetectionType = new String [] {
-				"White lines on dark background", "Dark lines on white background"};
-		String [] RoiType = new String [] {
-				"Nothing", "Only lines", "Lines of average width", "Lines with width border"};
-		String [] RoiColor = new String [] {
-				"Rainbow", "Black", "White", "Blue", "Cyan","Green","Magenta","Orange","Pink","Red","Yellow"};
-		String [] sLabelsCheckbox = new String [] {
-				"subpixel x,y (red circles)","eigenvector (green arrows)", 
-				"tracing lines (yellow circles)","eigenvalues",
-				"extensions (green circles)","junctions"};
-		boolean [] sLabelsDefault = new boolean [] {
-				Prefs.get("stegers_source.show_subpixel", DEBUG_show_subpixel), Prefs.get("stegers_source.show_eigenvector", DEBUG_show_eigenvector), 
-				Prefs.get("stegers_source.show_tracing", DEBUG_show_tracing), Prefs.get("stegers_source.show_eigenvalue", DEBUG_show_eigenvalue),
-				Prefs.get("stegers_source.show_extensions", DEBUG_show_extensions),Prefs.get("stegers_source.show_junctions", DEBUG_show_junctions), 
-				};
+		//ImageStatistics imgstat;
+		float[] pxOrig;
+		float[] pxBG;
+		int i,j,ind;
+		float [] ModeSD;
+		FloatProcessor flBG;
+		origMinusMean=(FloatProcessor) ip.duplicate().convertToFloat();	
+		
+		/**/
+		//subtract background
+		flBG=(FloatProcessor) origMinusMean.duplicate();
+		flBG.blurGaussian(SIGMA*5.0);
+		pxOrig=(float[])origMinusMean.getPixels();
+		pxBG=(float[])flBG.getPixels();
+		for(j=0; j<height; j++) 
+		{
+			for(i=0; i<width; i++) 
+			{
+				ind=i+j*(int)width;
+				origMinusMean.setf(ind, pxOrig[ind]-pxBG[ind]);
+			}
+		}
+		
+		/**/
+		ModeSD=getThreshold(origMinusMean);
+		imgSD=ModeSD[1];
+		imgMAX=ModeSD[2]-ModeSD[0];
+		//imgstat=ImageStatistics.getStatistics(origMinusMean, Measurements.MIN_MAX, null);
+		//origMinusMean.subtract(imgstat.mean);
+		origMinusMean.subtract(ModeSD[0]);
+		//ImagePlus impx;
+		rt=new ResultsTable();
+		//Analyzer anLoc;
+		impx = new ImagePlus("measure", origMinusMean);
+		anLoc=new Analyzer(impx,Measurements.MEAN,rt);
+		//anLoc=new Analyzer(impx,Measurements.MODE,rt);
+		//impx.show();
+		new ImagePlus("corrected", origMinusMean.duplicate()).show();
+	}
+	@Override
+	/** function returning MSE between traced and convoluted image 
+	 * and original image**/
+	public double value(double[] arg0) {
+		// TODO Auto-generated method stub
+		PolygonRoi polyline_p;
+		contour tmp_cont;
+		long num_pnt;
+		FloatProcessor conv= null; 
+		GaussianBlur gBlur = new GaussianBlur();
+		int i,j,ind;
+		
+		//ImageStatistics imgstat;
+		float[] pxTrace;
+		float[] pxOrig;
+		double dMSE=0;
+		//double dImW=0;
+		double lineval;
 		
 
+		double [] limits = new double [2];
+		//this one should be calculated already
+		//compute_line_points();
 		
-		GenericDialog paramD = new GenericDialog("Parameters");
-		paramD.addChoice("Detection type:", DetectionType, Prefs.get("stegers_source.mode_light", "White lines on dark background"));
-		//paramD.setInsets(10, 50, 0); 
-		paramD.addNumericField("Line width (SD of profile)", Prefs.get("stegers_source.sigma", SIGMA), 2, 4,"pixels");
-		//paramD.setInsets(10, 100, 0);
-		paramD.addNumericField("Maximum angle difference", Prefs.get("stegers_source.max_angle_difference", MAX_ANGLE_DIFFERENCE*180/Math.PI), 1,4,"degrees");
-		paramD.setInsets(10, 50, 0); 
-		paramD.addCheckbox("Extend line ends", Prefs.get("stegers_source.extend_lines", extend_lines));
-		paramD.addNumericField("Maximum line extension", Prefs.get("stegers_source.max_line_extension", MAX_LINE_EXTENSION/SIGMA), 1,4,"*line width, pixels");
-		paramD.setInsets(10, 50, 0);
-		paramD.addCheckbox("Split lines at junctions", Prefs.get("stegers_source.split_lines", split_lines));
-		paramD.addNumericField("Minimum number of points in line", Prefs.get("stegers_source.min_nodes", nMinNumberOfNodes), 0,3,"");
-		paramD.setInsets(10, 50, 0);
-		paramD.addCheckbox("Correct line position", Prefs.get("stegers_source.correct_pos", correct_pos));
-		paramD.setInsets(10, 50, 0);
-		paramD.addCheckbox("Compute line width", Prefs.get("stegers_source.compute_width", compute_width));
-		paramD.addNumericField("Maximum width search", Prefs.get("stegers_source.max_line_width", MAX_LINE_WIDTH/SIGMA), 1,4,"*line width, pixels");
-		paramD.setInsets(10, 0, 0);
-		//MAX_LINE_WIDTH = (2.5*SIGMA);
-		paramD.addChoice("Add to overlay and RoiManager:", RoiType, Prefs.get("stegers_source.roitype", "Only lines"));
-		paramD.addChoice("Color of added lines:", RoiColor, Prefs.get("stegers_source.roicolor", "Rainbow"));
-		paramD.addMessage("~~~~~~~~~~~~ Learning/Debug  ~~~~~~~~~~~~");
-		paramD.addCheckboxGroup(3,3,sLabelsCheckbox,sLabelsDefault);
+		//#of evaluations count
+		nEvalCount=nEvalCount+1;
 		
-
-		paramD.setResizable(false);
-		paramD.showDialog();
-		if (paramD.wasCanceled())
-            return false;
-		
-		nDetectionType = paramD.getNextChoiceIndex();
-		Prefs.set("stegers_source.mode_light", DetectionType[nDetectionType]);
-		if(nDetectionType ==0)
-			MODE_LIGHT = true;
+		//check for the boundaries
+		if(arg0[0]>arg0[1])
+		{
+			limits[0]=arg0[1];
+			limits[1]=arg0[0];
+		}
 		else
-			MODE_LIGHT = false;
+		{
+			limits[0]=arg0[0];
+			limits[1]=arg0[1];
+		}
+		if(limits[0]<threshold_tmp_ip_min)
+			limits[0]=threshold_tmp_ip_min;
+		if(limits[1]>threshold_tmp_ip_max)
+			limits[1]=threshold_tmp_ip_max;
 		
-		SIGMA = paramD.getNextNumber();
-		Prefs.set("stegers_source.sigma", SIGMA);
+		// get valid points lines map
+		getismax(limits); 
+		compute_contours();
+		//new imageprocessor
+		conv = new FloatProcessor((int)width, (int)height);
+		conv.setColor(imgMAX*0.5);
+		conv.setLineWidth(1);
 		
-		MAX_ANGLE_DIFFERENCE = paramD.getNextNumber()*Math.PI/180;
-		Prefs.set("stegers_source.max_angle_difference", MAX_ANGLE_DIFFERENCE*180/Math.PI);		
+		//if(cont.size()>0)
+		//{
+			//draw contours
+			for (i=0; i<cont.size(); i++) 
+			{
+				  tmp_cont = cont.get(i);  
+				  num_pnt = tmp_cont.num;
+				  float[] pxs = new float[(int) num_pnt];
+				  float[] pxy = new float[(int) num_pnt];
+				  for(j=0;j<num_pnt;j++)
+				  {
+					  pxs[j]=tmp_cont.row.get(j);
+					  pxy[j]=tmp_cont.col.get(j);
+				  }
+					  			  
+				  polyline_p = new PolygonRoi(pxy, pxs, Roi.POLYLINE);
+				  
+				  //polyline_p.setStrokeColor(Color.WHITE);
+				  polyline_p.setStrokeWidth(1.0);
+				  
+				  //origMinusMean.setMask(polyline_p.getMask());
+				  //origMinusMean.setRoi(polyline_p);
+				  impx.setRoi(polyline_p, false);
+				  anLoc.measure();
+				  lineval=rt.getValue("Mean", rt.getCounter()-1);
+
+				  //if(lineSD/Math.abs(lineval)<0.6)
+				  //{
+					  conv.setColor(lineval*SIGMA/0.342);
+					  //conv.setColor(imgMAX*0.5);
+				  //}
+				  //else
+				  //{
+					//  conv.setColor((-1.0)*Math.abs(lineval*SIGMA/0.342));
+				  //}
+				 // IJ.log(Double.toString(lineval));
+				  conv.draw(polyline_p);
+			}
+			gBlur.blurFloat(conv, SIGMA, SIGMA, 0.0002);
+
+			new ImagePlus("convoluted_"+Integer.toString(nEvalCount), conv.duplicate()).show();
+
+		//}
+		//else
+		//{
+			//penalize absense of lines by multiple SD of original image
+		//	conv.add(imgSD*4.0);
+		//}
+		pxTrace = (float[])conv.getPixels();
+		pxOrig = (float[])origMinusMean.getPixels();
+		
+		//calculate MSE
+		for(j=0; j<height; j++) 
+		{
+			for(i=0; i<width; i++) 
+			{
+				ind = i+j*(int)width;
+				//double dev=Math.pow(pxTrace[ind]-pxOrig[ind],2);
+				//dImW+=pxTrace[ind]*pxTrace[ind];
+				double dev=Math.abs(pxTrace[ind]-pxOrig[ind]);
+				//dImW+=Math.abs(pxTrace[ind]);
+
+				if(!Double.isNaN(dev))
+					dMSE+=dev;
+				else
+					dev=0;
+				//dMSE+=Math.abs(pxTrace[i+j*(int)width]-pxOrig[i+j*(int)width]);
 				
-		extend_lines = paramD.getNextBoolean();
-		Prefs.set("stegers_source.extend_lines", extend_lines);
-		
-		MAX_LINE_EXTENSION = paramD.getNextNumber()*SIGMA;
-		Prefs.set("stegers_source.max_line_extension", MAX_LINE_EXTENSION/SIGMA);	
-		
-		split_lines = paramD.getNextBoolean();
-		Prefs.set("stegers_source.split_lines", split_lines);
-		
-		nMinNumberOfNodes = (int) paramD.getNextNumber();
-		Prefs.set("stegers_source.min_nodes", nMinNumberOfNodes);
-		
-		correct_pos = paramD.getNextBoolean();
-		Prefs.set("stegers_source.correct_pos", correct_pos);
+				
+			}
+		}
+		dMSE=dMSE/((double)(width*height));
+		//dMSE=dMSE/dImW;
+		IJ.log("Eval: "+Integer.toString(nEvalCount)+" MSE:"+Double.toString(dMSE) + " lb:"+Double.toString(limits[0])+ " ub:"+Double.toString(limits[1]) +" curveN:"+Integer.toString(cont.size()));
+		ptable.add(new Double[] { (double)(nEvalCount-5), dMSE,limits[0],limits[1], (double)(cont.size())});
+		//ptable.addValue("Eval", nEvalCount-5);
+		//ptable.addValue("MSE", dMSE);
+		//ptable.addValue("LB", dMSE);
+		//ptable.addValue("UB", dMSE);
+		//ptable.addValue("CurveN", dMSE);
+		nCurveN=cont.size();
+		return dMSE;
+	}
 
-		compute_width = paramD.getNextBoolean();
-		Prefs.set("stegers_source.compute_width", compute_width);
 
-		MAX_LINE_WIDTH = paramD.getNextNumber()*SIGMA;
-		Prefs.set("stegers_source.max_line_width", MAX_LINE_WIDTH/SIGMA);		
-		
-		nRoiLinesType = paramD.getNextChoiceIndex();
-		Prefs.set("stegers_source.roitype", RoiType[nRoiLinesType]);
+	/** 
+	 *  returns value of mode intensity[0] and SD[1] in float processor based on 
+	 *  fitting of image histogram to Gaussian function
+	 *  In addition, returns max [2]
+	**/
+	float [] getThreshold(ImageProcessor thImage)
+	{
+		ImageStatistics imgstat;
 
-		nRoiLinesColor = paramD.getNextChoiceIndex();
-		Prefs.set("stegers_source.roicolor", RoiColor[nRoiLinesColor]);
+		double  [][] dNoiseFit;
+		int nHistSize;
+		int nMaxCount;
+		int nDownCount, nUpCount;
+		int i,nPeakPos,k; 
+		double dRightWidth, dLeftWidth;
+		double dWidth=0;
+		double dMean, dSD;
+		double dMAX;
+		double [] dFitErrors;
+		double dErrCoeff;
+		LMA fitlma;
+		float [] results;
+		int [] nHistgr;
+		int nBinSizeEst = 256;
+		boolean bOptimal = false;
+		int nPeakNew;
 		
-		DEBUG_show_subpixel = paramD.getNextBoolean();
-		Prefs.set("stegers_source.show_subpixel", DEBUG_show_subpixel);
+		
+		
+		nBinSizeEst =getBinOptimalNumber(thImage);
+		
+		//searching for the optimal for fitting intensity histogram's bin size
+	
+		thImage.setHistogramSize(nBinSizeEst);			
+		imgstat = ImageStatistics.getStatistics(thImage, Measurements.MODE + Measurements.MEAN+Measurements.STD_DEV+Measurements.MIN_MAX, null);
+		nHistSize = imgstat.histogram.length;											
+		nPeakPos = imgstat.mode;
+		nMaxCount = imgstat.maxCount;
+		dMAX=imgstat.max;
+		
+		
+		results = new float [] {(float) imgstat.dmode,(float) imgstat.stdDev, (float)dMAX};
+		return results;
+		
+		/*
+		nHistgr = new int [nHistSize];
+		for(k=0;k<nHistSize;k++)
+			nHistgr[k]=imgstat.histogram[k];
+		
+		//Plot histplot = new Plot("Histogram","intensity", "count", dHistogram[0], dHistogram[1]);
+		//histplot.show();
 
-		DEBUG_show_eigenvector = paramD.getNextBoolean();
-		Prefs.set("stegers_source.show_eigenvector", DEBUG_show_eigenvector);
+		while (!bOptimal)
+		{
+			//estimating width of a peak
+			//going to the left
+			i = nPeakPos;
+			while (i>0 && nHistgr[i]>0.5*nMaxCount)
+			{
+				i--;			
+			}
+			if(i<0)
+				i=0;
+			dLeftWidth = i;
+			//going to the right
+			i=nPeakPos;
+			while (i<nHistSize && nHistgr[i]>0.5*nMaxCount)
+			{
+				i++;			
+			}
+			if(i==nHistSize)
+				i=nHistSize-1;
+			dRightWidth = i;
+			//FWHM in bins
+			dWidth = (dRightWidth-dLeftWidth);
+			//histogram is too narrow for fitting, increase number of bins
+			if(dWidth<12)
+			{
+				nBinSizeEst = nBinSizeEst + 100;
+				//bin set is too dense
+				if(nBinSizeEst> 1000)
+				{
+					//ok, seems there is one very high peak/bin, let's remove it					
+					//nBinSizeEst = 256;
+					thImage.setHistogramSize(nBinSizeEst);	
+					imgstat = ImageStatistics.getStatistics(thImage, Measurements.MODE + Measurements.MEAN+Measurements.STD_DEV+Measurements.MIN_MAX, null);
+					nHistSize = imgstat.histogram.length;											
+					nPeakPos = imgstat.mode;
+	
+					
+					nHistgr = new int [nHistSize];
+					nPeakNew=0; nMaxCount=0;
+					for(k=0;k<nPeakPos;k++)
+					{
+						nHistgr[k]=imgstat.histogram[k];
+						if(nHistgr[k]>nMaxCount)
+						{
+							nMaxCount = nHistgr[k];
+							nPeakNew = k;
+						}
+					}
+					//no particles or flat image
+					if (nPeakPos==0)
+					{
+						results = new float [] {(float) imgstat.mean,(float) imgstat.stdDev, (float)dMAX};
+						return results;
+					}
+					nHistgr[nPeakPos]=(int) (0.5*(imgstat.histogram[nPeakPos-1]+imgstat.histogram[nPeakPos+1]));
+					for(k=nPeakPos+1;k<nHistSize;k++)
+					{
+						nHistgr[k]=imgstat.histogram[k];
+						if(nHistgr[k]>nMaxCount)
+						{
+							nMaxCount = nHistgr[k];
+							nPeakNew = k;
+						}
+					}
+					nPeakPos=nPeakNew;
+					//nHistSize = nHistSize;
+					
+					//estimating width of a peak
+					//going to the left
+					i = nPeakPos;
+					while (i>0 && nHistgr[i]>0.5*nMaxCount)
+					{
+						i--;			
+					}
+					if(i<0)
+						i=0;
+					dLeftWidth = i;
+					//going to the right
+					i=nPeakPos;
+					while (i<nHistSize && nHistgr[i]>0.5*nMaxCount)
+					{
+						i++;			
+					}
+					if(i==nHistSize)
+						i=nHistSize-1;
+					dRightWidth = i;
+					//FWHM in bins
+					dWidth = (dRightWidth-dLeftWidth);
+					bOptimal = true;
+				}
+				else
+				{
+					//recalculate parameters
+					thImage.setHistogramSize(nBinSizeEst);			
+					imgstat = ImageStatistics.getStatistics(thImage, Measurements.MODE + Measurements.MEAN+Measurements.STD_DEV+Measurements.MIN_MAX, null);
+					nHistSize = imgstat.histogram.length;											
+					nPeakPos = imgstat.mode;
+					nMaxCount = imgstat.maxCount;
+					nHistgr = new int[nHistSize];
+					for(k=0;k<nHistSize;k++)
+						nHistgr[k]=imgstat.histogram[k];					
+				}
+			}
+			//histogram is ok, proceed to fitting
+			else
+			{
+				bOptimal = true;				
+			}
+		}
+
+					
+		dMean = imgstat.min + nPeakPos*imgstat.binSize;
+		dSD = dWidth*imgstat.binSize/2.35;
+		//fitting range +/- 3*SD
+		dLeftWidth = nPeakPos - 3*dWidth/2.35;
+		if(dLeftWidth<0)
+			dLeftWidth=0;
+		dRightWidth = nPeakPos + 3*dWidth/2.35;
+		if(dRightWidth>nHistSize)
+			dRightWidth=nHistSize;
+		nUpCount = (int)dRightWidth;
+		nDownCount = (int)dLeftWidth;
+		//preparing histogram range for fitting
+		dNoiseFit = new double [2][nUpCount-nDownCount+1];
+		for(i=nDownCount;i<=nUpCount;i++)
+		{
+			dNoiseFit[0][i-nDownCount] = imgstat.min + i*imgstat.binSize;
+			dNoiseFit[1][i-nDownCount] = (double)nHistgr[i];
+		}
 		
-		DEBUG_show_tracing = paramD.getNextBoolean();
-		Prefs.set("stegers_source.show_tracing", DEBUG_show_tracing);
+		fitlma = new LMA(new OneDGaussian(), new double[] {(double)nMaxCount, dMean, dSD}, dNoiseFit);
+		fitlma.fit();
+		dMean = fitlma.parameters[1];
+		dSD = fitlma.parameters[2];
 		
-		DEBUG_show_eigenvalue = paramD.getNextBoolean();
-		Prefs.set("stegers_source.show_eigenvalue", DEBUG_show_eigenvalue);
+		dFitErrors = fitlma.getStandardErrorsOfParameters();
+		// scaling coefficient for parameters errors estimation 
+		// (Standard deviation of residuals)
+		dErrCoeff = Math.sqrt(fitlma.chi2/(nUpCount-nDownCount+1-3));
+		for (i=0;i<3;i++)
+			dFitErrors[i] *= dErrCoeff;
+		for (i=0;i<3;i++)
+			dFitErrors[i] *= 100/fitlma.parameters[i]; 
 		
-		DEBUG_show_extensions = paramD.getNextBoolean();
-		Prefs.set("stegers_source.show_extensions", DEBUG_show_extensions);
+	
 		
-		DEBUG_show_junctions = paramD.getNextBoolean();
-		Prefs.set("stegers_source.show_junctions", DEBUG_show_junctions);
+			results = new float [] {(float) dMean,(float) dSD, (float)dMAX};
+			return results;
+	
+		*/
+		
+	}
+	
+	/** function returns optimal bin number for the image histogram
+	 *  according to the Freedman-Diaconis rule (check wiki) **/
+	int getBinOptimalNumber(ImageProcessor ip)
+	{
+		//int nBinSize;
+		int width, height;
+		int pixelCount;
 
 		
-		return true;
+		width=ip.getWidth();
+		height=ip.getHeight();
+		pixelCount=width*height;
+		
+
+		float[] pixels2 = new float[pixelCount];
+		//float[] pixels2;
+		System.arraycopy((float[])ip.getPixels(),0,pixels2,0,pixelCount);
+	
+		Arrays.sort(pixels2);
+		//int middle = pixels2.length/2;
+		int qi25 = Math.round(pixelCount*0.25f);
+		int qi75 = Math.round(pixelCount*0.75f);
+	
+		float IQR = pixels2[qi75]-pixels2[qi25];
+		double h= 2*IQR*Math.pow((double)pixelCount, -1.0/3.0);
+		
+		return (int)Math.round((pixels2[pixelCount-1]-pixels2[0])/h);
+			
+	}
+	
+	/** given an image function returns intensity value
+	 * corresponding to specific percentile (saturation level) **/
+	float getSaturationLevel(ImageProcessor ip, double dSatPercentage)
+	{
+		int width, height;
+		int pixelCount;
+
+		
+		width=ip.getWidth();
+		height=ip.getHeight();
+		pixelCount=width*height;
+		
+
+		float[] pixels2 = new float[pixelCount];
+		//float[] pixels2;
+		System.arraycopy((float[])ip.getPixels(),0,pixels2,0,pixelCount);
+	
+		Arrays.sort(pixels2);
+		//int middle = pixels2.length/2;
+		long satind = Math.round(pixelCount*(1.0-(dSatPercentage/100)));
+		//int qi75 = Math.round(pixelCount*0.75f);
+	
+		return pixels2[(int) satind];
+		//float IQR = pixels2[qi75]-pixels2[qi25];
+		//double h= 2*IQR*Math.pow((double)pixelCount, -1.0/3.0);
+		
+		//return (int)Math.round((pixels2[pixelCount-1]-pixels2[0])/h);
 	
 	}
+	
+	public void calcMap()
+	{
+		double lb,ub;
+		double nMin=0.1;
+		double nMax=15;
+		double nStep=0.1;
+		int i=-1;
+		int j=-1;
+		int nDim=(int)Math.ceil((nMax-nMin)/nStep)+1;
+		ipCurveN=new FloatProcessor(nDim,nDim);
+		ipMSE=new FloatProcessor(nDim,nDim);
+		
+		for( lb=nMin;lb<nMax; lb+=nStep)
+		{
+			i++; j=i-1;
+			for(ub=lb;ub<nMax; ub+=nStep)
+			{
+				j++;
+				ipMSE.setf(i, j, (float)value(new double[] { lb, ub}));
+				ipCurveN.setf(i, j, (float)nCurveN);
+				ipMSE.setf(j, i, (float)value(new double[] { lb, ub}));
+				ipCurveN.setf(j, i, (float)nCurveN);
+			}
+			IJ.log(Double.toString(lb));
+		}
+	}
+
+
 }
 
