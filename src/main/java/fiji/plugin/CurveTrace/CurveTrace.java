@@ -305,7 +305,7 @@ public class CurveTrace implements PlugIn{
 		//paramD.setInsets(10, 50, 0); 
 		paramD.addNumericField("Line width (SD of profile)", Prefs.get("stegers_source.sigma", ctracer.SIGMA), 2, 4,"pixels");
 		//paramD.setInsets(10, 100, 0);
-		paramD.addNumericField("Maximum angle difference", Prefs.get("stegers_source.max_angle_difference", ctracer.MAX_ANGLE_DIFFERENCE*180/Math.PI), 1,4,"degrees");
+		//paramD.addNumericField("Maximum angle difference", Prefs.get("stegers_source.max_angle_difference", ctracer.MAX_ANGLE_DIFFERENCE*180/Math.PI), 1,4,"degrees");
 		paramD.setInsets(10, 50, 0); 
 		paramD.addCheckbox("Extend line ends", Prefs.get("stegers_source.extend_lines", ctracer.extend_lines));
 		paramD.addNumericField("Maximum line extension", Prefs.get("stegers_source.max_line_extension", ctracer.MAX_LINE_EXTENSION/ctracer.SIGMA), 1,4,"*line width, pixels");
@@ -341,8 +341,8 @@ public class CurveTrace implements PlugIn{
 		ctracer.SIGMA = paramD.getNextNumber();
 		Prefs.set("stegers_source.sigma", ctracer.SIGMA);
 		
-		ctracer.MAX_ANGLE_DIFFERENCE = paramD.getNextNumber()*Math.PI/180;
-		Prefs.set("stegers_source.max_angle_difference", ctracer.MAX_ANGLE_DIFFERENCE*180/Math.PI);		
+		//ctracer.MAX_ANGLE_DIFFERENCE = paramD.getNextNumber()*Math.PI/180;
+		//Prefs.set("stegers_source.max_angle_difference", ctracer.MAX_ANGLE_DIFFERENCE*180/Math.PI);		
 				
 		ctracer.extend_lines = paramD.getNextBoolean();
 		Prefs.set("stegers_source.extend_lines", ctracer.extend_lines);

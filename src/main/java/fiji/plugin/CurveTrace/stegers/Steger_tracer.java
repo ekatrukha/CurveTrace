@@ -19,14 +19,12 @@
 
 package fiji.plugin.CurveTrace.stegers;
 
-import java.awt.Color;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 
 import org.apache.commons.math3.analysis.MultivariateFunction;
 
-import fiji.plugin.CurveTrace.Fit.OneDGaussian;
 import ij.IJ;
 import ij.ImagePlus;
 import ij.Prefs;
@@ -78,7 +76,7 @@ public class Steger_tracer implements MultivariateFunction
 	/** Maximum angular difference of neighboring line points allowed during
 	   linking.  If all feasible neighbors have a larger angular difference the
 	   line is stopped at that point. */
-	public double MAX_ANGLE_DIFFERENCE = Math.PI/6.0;
+	public static double MAX_ANGLE_DIFFERENCE = Math.PI/6.0;
 	/** Maximum length by which a line is possibly extended in order to find a
 	   junction with another line. */
 	public double MAX_LINE_EXTENSION = SIGMA*2.5;
