@@ -599,7 +599,7 @@ public class CurveTrace implements PlugIn{
 					  ptable.addValue("Width_right_(px)",tmp_cont.width_r.get(j));
 					  if (ctracer.correct_pos)
 					  {
-						  ptable.addValue("Assymetry",tmp_cont.asymmetry.get(j));
+						  ptable.addValue("Asymmetry",tmp_cont.asymmetry.get(j));
 						  //does not make much sense
 						  ptable.addValue("Contrast",tmp_cont.contrast.get(j));
 					  }
